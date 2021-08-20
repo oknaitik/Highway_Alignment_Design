@@ -367,16 +367,10 @@ for k in range(number_of_paths):
     long_length, max_grade, max_depth = get_profile_details(xvals, yvals, zvals, zvals_ground)
     profile.add_trace(go.Scatter(x = long_length, y = zvals))
     profile.add_trace(go.Scatter(x = long_length, y = zvals_ground))
-    
+   
     v_proj.add_traces(go.Scatter(x = xvals, y = yvals))
     
 fig.show()
 profile.show()
 v_proj.show()
-
-
-# In[ ]:
-
-
-
 
