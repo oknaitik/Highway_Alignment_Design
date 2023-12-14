@@ -4,187 +4,205 @@
 # In[1]:
 
 
-import random
-import numpy as np
-from perlin_noise import PerlinNoise
 import plotly.graph_objects as go
-
-x_max = 500 # in metres
-y_max = 800 # in metres
-gap = 20 # should be an integer
-nx = int(x_max/ gap) + 1 # number of points in x-direction
-ny = int(y_max/ gap) + 1 # number of points in y-direction
-x = np.linspace(0, x_max, nx) # array of x-coordinates along x-direction
-y = np.linspace(0, y_max, ny) # array of y-coordinates along y-direction
-# assuming x-direction is horizontal while y-direction is vertical
-X, Y = np.meshgrid(x, y) # generate coordinate matrix
-
-# 3d-land generation using perlin noise
-Z = np.zeros((ny, nx)) # "ny by nx" zero matrix that stores altitude values at different coordinates
-noise1 = PerlinNoise(octaves = 2) # more octaves implies more undulations
-noise2 = PerlinNoise(octaves = 8)
-noise3 = PerlinNoise(octaves = 80)
-for j in range(ny):
-    for i in range(nx):
-        Z[j][i] =         noise1([j/ ny, i/ nx])
-        Z[j][i] += 0.3 *  noise2([j/ ny, i/ nx])
-        Z[j][i] += 0.05 * noise3([j/ ny, i/ nx])
-Z = Z * 65
-
-# plot surface using plotly library
-fig = go.Figure(data = [go.Surface(
-    x = X, 
-    y = Y, 
-    z = Z, 
-    colorscale = 'turbid', 
-    opacity = 1, 
-    reversescale = True
-)])
-fig.update_scenes(
-    aspectmode = 'data', # enables axes scaling proportionally
-    xaxis = dict(nticks = nx), 
-    yaxis = dict(nticks = ny)
-)
-
-# selection of a pair of coordinates between which road has to be built
-x_avl = list(x) # x available
-y_avl = list(y) # y available
-xP = random.sample(x_avl, 1)
-yP = random.sample(y_avl, 1)
-zP = [Z[int(yP[0]/ gap)][int(xP[0]/ gap)]]
-
-f = 0.15
-x_low = max(xP[0] - int(f * x_max/ gap) * gap, 0)
-x_high = min(xP[0] + int(f * x_max/ gap) * gap, x_max)
-for el in np.linspace(x_low, x_high, int((x_high - x_low)/ gap) + 1):
-    x_avl.remove(el)
-y_low = max(yP[0] - int(f * y_max/ gap) * gap, 0)
-y_high = min(yP[0] + int(f * y_max/ gap) * gap, y_max)
-for el in np.linspace(y_low, y_high, int((y_high - y_low)/ gap) + 1):
-    y_avl.remove(el)
-xP.append(random.sample(x_avl, 1)[0])
-yP.append(random.sample(y_avl, 1)[0])
-zP.append(Z[int(yP[1]/ gap)][int(xP[1]/ gap)])
-
-# plot a straight line connecting the two points
-fig.add_trace(go.Scatter3d(x = xP, y = yP, z = zP))
+import numpy as np
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output, State
+import random
+from perlin_noise import PerlinNoise
+import heapq
 
 
 # In[2]:
 
 
-def euclidean_dist(x, y, x0, y0):
-    return np.sqrt((x - x0) ** 2 + (y - y0) ** 2)
-
-def a_less_than_b(a, b):
-    if a <= b:
-        return 1
-    else:
-        return -1
-    
-# starting point (point 1) is assumed to be the one with lesser x-value
-# the other point is the ending point (point 2)
-xP1 = int(min(xP))
-ind_xP1 = xP.index(xP1)
-yP1 = int(yP[ind_xP1])
-ind_xP2 = int(not ind_xP1)
-xP2 = int(xP[ind_xP2])
-yP2 = int(yP[ind_xP2])
-
-# we now connect the two points using the points that form the land (surface)
-# the vertical projection of the connecting trace will be similar to that of the straight line seen earlier
-pts_x = []
-pts_y = []
-pts_z = []
-pts_x.append(xP1)
-pts_y.append(yP1)
-pts_z.append(Z[int(yP1/ gap)][int(xP1/ gap)])
-
-if xP1 != xP2 and yP1 != yP2:
-    interm_pts = [] # stores data related to the intermediate points that will form the desired trace
-    m = (yP2 - yP1)/ (xP2 - xP1) # slope of the projection of the straight line in 2-d plane
-    for xi in range(xP1 + gap, xP2, gap):
-        yi = m * (xi - xP1) + yP1
-        d = euclidean_dist(xi, yi, xP1, yP1)
-        interm_pts.append([xi, yi, d, xi, int(yi/ gap) * gap, xi, int(yi/ gap + 1) * gap])
-        
-    yP1_smaller_than_yP2 = a_less_than_b(yP1, yP2) # if yP1 <= yP2, value = 1; else -1
-    for yi in range(yP1 + yP1_smaller_than_yP2 * gap, yP2, yP1_smaller_than_yP2 * gap):
-        xi = 1/ m * (yi - yP1) + xP1
-        d = euclidean_dist(xi, yi, xP1, yP1)
-        interm_pts.append([xi, yi, d, int(xi/ gap) * gap, yi, int(xi/ gap + 1) * gap, yi])
-    interm_pts.sort(key = lambda i: i[2]) # sorts the data based on the distance of intermediate point from the start point (point 1)
-    
-    for i in range(len(interm_pts)):
-        x1 = interm_pts[i][0]
-        y1 = interm_pts[i][1]
-        x2 = interm_pts[i][3]
-        y2 = interm_pts[i][4]
-        x3 = interm_pts[i][5]
-        y3 = interm_pts[i][6]
-        if euclidean_dist(x1, y1, x2, y2) < euclidean_dist(x1, y1, x3, y3):
-            pts_x.append(x2)
-            pts_y.append(y2)
-            pts_z.append(Z[int(y2/ gap)][int(x2/ gap)])
-        else:
-            pts_x.append(x3)
-            pts_y.append(y3)
-            pts_z.append(Z[int(y3/ gap)][int(x3/ gap)])
-            
-elif xP1 != xP2: # if yP1 = yP2
-    for xi in range(xP1 + gap, xP2, gap):
-        pts_x.append(xi)
-        pts_y.append(yP1)
-        pts_z.append(Z[int(yP1/ gap)][int(xi/ gap)])
-        
-elif yP1 != yP2: # assuming start and destination points are not one above the other 
-    yP1_smaller_than_yP2 = a_smaller_than_b(yP1, yP2) # if yP1 is smaller than yP2, value = 1; else -1
-    for yi in range(yP1 + yP1_smaller_than_yP2 * gap, yP2, yP1_smaller_than_yP2 * gap):
-        pts_x.append(xP1)
-        pts_y.append(yi)
-        pts_z.append(Z[int(yi/ gap)][int(xP1/ gap)])
-    
-pts_x.append(xP2)
-pts_y.append(yP2)
-pts_z.append(Z[int(yP2/ gap)][int(xP2/ gap)])
-
-fig.add_trace(go.Scatter3d(
-    x = pts_x, 
-    y = pts_y, 
-    z = pts_z, 
-    mode = 'lines'
-))
-fig.show()
+def get_point_coordinate(f, x, xm, delx):
+    x_low = max(x - int((f * xm)// delx * delx), 0)
+    x_high = min(x + int((f * xm)//delx * delx), xm)
+    arr1 = np.arange(0, x_low, delx)
+    arr2 = np.arange(x_high, xm, delx)
+    arr = np.concatenate((arr1, arr2))
+    return arr[random.randrange(len(arr))]
 
 
-long_length = [0] # longitudinal length of the vertical projection of highway
-l = 0
-max_grade = 0
-for i in range(len(pts_x) - 1):
-    del_l = np.sqrt((pts_x[i + 1] - pts_x[i]) ** 2 + (pts_y[i + 1] - pts_y[i]) ** 2)
-    l += del_l
-    long_length.append(l)
-    
-    grade = abs(pts_z[i + 1] - pts_z[i])/ del_l
-    if grade > max_grade:
-        max_grade = grade
-
-profile = go.Figure()
-profile.add_trace(go.Scatter(x = long_length, y = pts_z))
-profile.show()
-
-v_proj = go.Figure()
-v_proj.add_trace(go.Scatter(x = pts_x, y = pts_y))
-v_proj.show()
+# In[3]:
 
 
-# In[12]:
-
-
-import heapq
-
+def euclidean_dist(p1, p2):
+    return np.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
 def segment_length(a, b):
     return np.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2 + (b[2] - a[2]) ** 2)
+
+
+# In[4]:
+
+
+def a_less_than_b(a, b):
+    return 1 if (a <= b) else -1;
+
+
+# In[5]:
+
+
+def generate_terrain(gap, fz, n1, n2, n3, rw, pc, ec):
+    x_max = 1200 # in metres
+    y_max = 600 # in metres
+    
+    nx = x_max// gap + 1 # number of points in x-direction
+    ny = y_max// gap + 1 # number of points in y-direction
+    x = np.linspace(0, x_max, nx) # array of x-coordinates along x-direction
+    y = np.linspace(0, y_max, ny) # array of y-coordinates along y-direction
+    # assuming x-direction is horizontal while y-direction is vertical
+    X, Y = np.meshgrid(x, y) # generate coordinate matrix
+
+    # 3d-land generation using perlin noise
+    Z = np.zeros((ny, nx)) # "ny by nx" zero matrix that stores altitude values at different coordinates
+    noise1 = PerlinNoise(octaves = n1) # more octaves implies more undulations
+    noise2 = PerlinNoise(octaves = n2)
+    noise3 = PerlinNoise(octaves = n3)
+    for j in range(ny):
+        for i in range(nx):
+            Z[j][i] =         noise1([j/ ny, i/ nx])
+            Z[j][i] += 0.3 *  noise2([j/ ny, i/ nx])
+            Z[j][i] += 0.05 * noise3([j/ ny, i/ nx])
+    Z = Z * fz
+
+    # plot surface using plotly library
+    fig = go.Figure(data = [go.Surface(
+        x = X, 
+        y = Y, 
+        z = Z, 
+        colorscale = 'turbid', 
+        opacity = 1, 
+        reversescale = True
+    )])
+    fig.update_scenes(
+        aspectmode = 'data', # enables axes scaling proportionally
+        xaxis = dict(nticks = nx), 
+        yaxis = dict(nticks = ny)
+    )
+
+    # selection of a pair of coordinates between which road has to be built
+    start_x = random.randint(0, nx-1) * gap
+    start_y = random.randint(0, ny-1) * gap
+    start_z = Z[start_y// gap][start_x// gap]
+
+    f = 0.4 #consider a square with start as its center and edge length <=80% of plot size
+    end_x = get_point_coordinate(f, start_x, x_max, gap)
+    end_y = get_point_coordinate(f, start_y, y_max, gap) 
+    end_z = Z[end_y// gap][end_x// gap]
+
+    # plot a straight line connecting the two points
+    xP = [start_x, end_x]
+    yP = [start_y, end_y]
+    zP = [start_z, end_z]
+    
+    ############# NEXT PART: ESTABLISH DIRECT PATH #############
+    
+    # starting point (point 1) is assumed to be the one with lesser x-value
+    # the other point is the ending point (point 2)
+    xP1 = int(min(xP))
+    ind_xP1 = xP.index(xP1)
+    yP1 = int(yP[ind_xP1])
+    ind_xP2 = int(not ind_xP1)
+    xP2 = int(xP[ind_xP2])
+    yP2 = int(yP[ind_xP2])
+
+    # we now connect the two points using the points that form the land (surface)
+    # the vertical projection of the connecting trace will be similar to that of the straight line seen earlier
+
+    pts_x = []
+    pts_y = []
+    pts_z = []
+    direct_earthwork_volume = 0
+    if xP1 != xP2:
+        g_xy = (yP2 - yP1)/ (xP2 - xP1)
+        g_xz = (Z[yP2// gap][xP2// gap] - Z[yP1// gap][xP1// gap])/ (xP2 - xP1)
+        
+        #x, y, z are coordinates of straight line joining start and end
+        y = yP1
+        z = Z[yP1// gap][xP1// gap]
+        pts_x = np.arange(xP1, xP2 + 1, gap)
+        pts_y.append(y)
+        pts_z.append(z)
+        separation = np.sqrt(gap**2 * (1 + g_xy**2))
+        prev_delz = 0
+        for x in np.arange(xP1 + gap, xP2 + 1, gap):
+            y += g_xy * gap
+            z += g_xz * gap
+    
+            zg = (y/gap - y// gap) * Z[min(int(y// gap) + 1, ny-1)][x// gap] + ((y// gap + 1) - y/gap) * Z[max(int(y// gap), 0)][x// gap]
+            curr_delz = z - zg 
+            if (prev_delz * curr_delz >= 0):
+                direct_earthwork_volume += 0.5 * abs(prev_delz + curr_delz) * separation
+            else:
+                direct_earthwork_volume += 0.5 * (prev_delz ** 2 + curr_delz ** 2)/ (abs(prev_delz) + abs(curr_delz)) * separation
+
+            pts_y.append(y)
+            pts_z.append(zg)
+            prev_delz = curr_delz
+    else:
+        g_yz = (Z[yP2// gap][xP2// gap] - Z[yP1// gap][xP1// gap])/ (yP2 - yP1)
+        pts_x = np.repeat(xP1, (yP2 - yP1)// gap + 1)
+        pts_y = np.arange(yP1, yP2 + 1, gap)
+        z = Z[yP1// gap][xP1// gap]
+        prev_delz = 0
+        for y in np.arange(yP1, yP2 + 1, gap):
+            z += g_yz * gap
+            zg = Z[y// gap][xP1// gap]
+            curr_delz = z - zg
+            if (prev_delz * curr_delz >= 0):
+                direct_earthwork_volume += 0.5 * abs(prev_delz + curr_delz) * gap
+            else:
+                direct_earthwork_volume += 0.5 * (prev_delz ** 2 + curr_delz ** 2)/ (abs(prev_delz) + abs(curr_delz)) * gap
+
+            pts_z.append(zg)
+            prev_delz = curr_delz
+            
+    
+    cost1 = rw * direct_earthwork_volume/ (gap**3) * ec + rw * segment_length((xP[0], yP[0], zP[0]), (xP[1], yP[1], zP[1]))/ (gap**2) * pc
+    fig.add_trace(
+        go.Scatter3d(
+            x = xP, 
+            y = yP, 
+            z = zP, 
+            name = 'Direct Line; cost:{}'.format(round(cost1, 6))
+        )
+    )
+    fig.add_trace(go.Scatter3d(
+        x = pts_x, 
+        y = pts_y, 
+        z = pts_z, 
+        mode = 'lines', 
+        name = 'On-terrain Direct Path'
+    ))
+    
+    return fig, pts_x, pts_y, pts_z, Z, nx, ny
+
+
+# In[6]:
+
+
+def initial_profiles(pts_x, pts_y, pts_z):
+    long_length = [0] # longitudinal length of the vertical projection of highway
+    l = 0
+    max_grade = 0
+    for i in range(len(pts_x) - 1):
+        del_l = np.sqrt((pts_x[i + 1] - pts_x[i]) ** 2 + (pts_y[i + 1] - pts_y[i]) ** 2)
+        l += del_l
+        long_length.append(l)
+        
+    profile = go.Figure()
+    profile.add_trace(go.Scatter(x = long_length, y = pts_z))
+    v_proj = go.Figure()
+    v_proj.add_trace(go.Scatter(x = pts_x, y = pts_y))
+
+    return profile, v_proj, l
+
+
+# In[7]:
+
 
 def scale_values(r, a):
     return (r * a[0], r * a[1])
@@ -212,6 +230,10 @@ def get_profile_details(x, y, z, zg):
         if depth > max_depth:
             max_depth = depth
     return long_length, max_grade, max_depth
+
+
+# In[8]:
+
 
 def optimal_path(start_node, goal_node, grid_xlim, grid_ylim, pc, ec, w, Z, grade_lim, R, d_max, blocked_nodes):
     unvisited_nodes = []
@@ -244,7 +266,7 @@ def optimal_path(start_node, goal_node, grid_xlim, grid_ylim, pc, ec, w, Z, grad
             route = route[:: -1]
             route.remove(min_node)
             route.append(goal_node)
-            print('check')
+#             print('check')
             return route, true_cost[min_node]
         
         wh = node_direction[min_node][0]
@@ -326,51 +348,430 @@ def optimal_path(start_node, goal_node, grid_xlim, grid_ylim, pc, ec, w, Z, grad
             visited_nodes.add(min_node[: 2])
 
 
+# In[9]:
+
+
+# Create Dash app
+app = dash.Dash(__name__)
+
+# Define the layout
+def generate_gap_component():
+    gap_options = [6, 8, 10, 12, 15, 20, 25, 30]
+    gap_dict = [{'label': str(i), 'value': i} for i in gap_options]
+    return html.Div([
+        html.Div(
+            'Cell Size:', 
+            style={'font-size': '18px', 'display': 'inline-block', 'margin-right': '10px'}
+        ),
+        dcc.Dropdown(
+            id='gap-dropdown',
+            options=gap_dict,
+            value=None,
+            style={'width': '80px'}
+        )], 
+        style={'display': 'flex', 'flex-direction': 'row', 'align-items': 'center'}
+    )
+def generate_amplify_component():
+    return html.Div([
+        html.Div(
+            'Amplify z-values:', 
+            style={'font-size': '18px', 'display': 'inline-block'}
+        ),
+        html.Div([
+            dcc.Slider(
+                id='amplify-slider',
+                min=30,
+                max=80,
+                step=10
+            )], 
+            style={'width': '200px'}
+        )],
+        style={'width': '250px', 'display': 'flex', 'flex-direction': 'row', 'align-items': 'center'}
+    )
+def generate_primary_octave_component():
+    return html.Div([
+        html.Div(
+            'Primary:', 
+            style={'display': 'inline-block'}
+        ),
+        html.Div([
+            dcc.Slider(
+                id='prim-oct-slider',
+                min=2,
+                max=5,
+                step=1
+            )], 
+            style={'width': '200px'}
+        )], 
+        style = {'width': '350px', 'display': 'flex', 'flex-direction': 'row', 'justify-content': 'space-between'}
+    )
+def generate_secondary_octave_component():
+    return html.Div([
+        html.Div(
+            'Secondary:', 
+            style={'display': 'inline-block'}
+        ),
+        html.Div([
+            dcc.Slider(
+                id='sec-oct-slider',
+                min=6,
+                max=14,
+                step=1
+            )], 
+            style={'width': '250px'}
+        )], 
+        style = {'width': '350px', 'display': 'flex', 'flex-direction': 'row', 'justify-content': 'space-between'}
+    )
+def generate_tertiary_octave_component():
+    return html.Div([
+        html.Div(
+            'Tertiary:', 
+            style={'display': 'inline-block'}
+        ),
+        html.Div([
+            dcc.Slider(
+                id='tert-oct-slider',
+                min=10,
+                max=24,
+                step=2
+            )], 
+            style={'width': '250px'}
+        )], 
+        style = {'width': '350px', 'display': 'flex', 'flex-direction': 'row', 'justify-content': 'space-between'}
+    )
+def generate_octave_component():
+    return html.Div([
+        html.Div(
+            'No. of octaves:', 
+            style={'font-size': '18px', 'display': 'inline-block', 'margin-bottom': '15px'}
+        ),
+        generate_primary_octave_component(), 
+        generate_secondary_octave_component(), 
+        generate_tertiary_octave_component()], 
+        style={'display': 'flex', 'flex-direction': 'column', 'align-items': 'center'}
+    )
+
+
+# In[10]:
+
+
+def generate_paving_rate_component():
+#     arr = [i for i in range(11)]
+    return html.Div([
+        html.Div(
+            'Paving rate:', 
+            style={'display': 'inline-block', 'font-size': '18px'}
+        ),
+        html.Div([
+            dcc.Slider(
+                id='pav-slider',
+                min=1,
+                max=10,
+                step=0.2, 
+                marks=[{'label': str(i), 'value': i} for i in range(11)]
+            )], 
+            style={'width': '200px'}
+        )], 
+        style = {
+#             'width': '350px', 
+            'display': 'flex', 
+            'flex-direction': 'row', 
+            'justify-content': 'space-between'
+        }
+    )
+def generate_earthwork_rate_component():
+    return html.Div([
+        html.Div(
+            'Earthwork rate:', 
+            style={'display': 'inline-block', 'font-size': '18px'}
+        ),
+        html.Div([
+            dcc.Slider(
+                id='ewk-slider',
+                min=1,
+                max=10,
+                step=0.2, 
+                marks=[{'label': str(i), 'value': i} for i in range(11)]
+            )], 
+            style={'width': '200px'}
+        )], 
+        style = {
+#             'width': '350px', 
+            'display': 'flex', 
+            'flex-direction': 'row', 
+            'justify-content': 'space-between'
+        }
+    )
+
+def generate_rate_component():
+    return html.Div([
+        generate_paving_rate_component(), 
+        generate_earthwork_rate_component()], 
+        style={
+            'display': 'flex', 
+            'flex-direction': 'column', 
+            'align-items': 'stretch',
+        }
+    )
+def generate_grade_limit_component():
+    return html.Div([
+        html.Div(
+            'Grade limit:', 
+            style={'font-size': '18px', 'display': 'inline-block'}
+        ),
+        html.Div([
+            dcc.Slider(
+                id='gradelim-slider',
+                min=3,
+                max=9,
+                step=1
+            )], 
+            style={'width': '180px'}
+        )],
+        style={
+            'display': 'flex', 
+            'flex-direction': 'row', 
+            'align-items': 'center', 
+            'justify-content': 'space-between'
+        }
+    )
+def generate_max_depth_component():
+    return html.Div([
+        html.Div(
+            'Max cut/fill depth:', 
+            style={'font-size': '18px', 'display': 'inline-block'}
+        ),
+        html.Div([
+            dcc.Slider(
+                id='maxdepth-slider',
+                min=3,
+                max=9,
+                step=1
+            )], 
+            style={'width': '200px'}
+        )],
+        style={
+            'display': 'flex', 
+            'flex-direction': 'row', 
+            'align-items': 'center',
+            'justify-content': 'space-between'
+        }
+    )
+def generate_num_paths_component():
+    return html.Div([
+        html.Div(
+            'No. of paths:', 
+            style={'font-size': '18px', 'display': 'inline-block'}
+        ),
+        html.Div([
+            dcc.Slider(
+                id='numpaths-slider',
+                min=1,
+                max=4,
+                step=1
+            )], 
+            style={'width': '200px'}
+        )],
+        style={
+            'display': 'flex', 
+            'flex-direction': 'row', 
+            'justify-content': 'space-between',
+        }
+    )
+
+
+# In[11]:
+
+
+app.layout = html.Div([
+    html.Div([
+        html.Div([
+            html.Div([
+                generate_gap_component(),
+                generate_amplify_component(),
+                generate_octave_component()],
+                style={
+                    'display': 'flex', 
+                    'flex-direction': 'row', 
+                    'justify-content': 'space-around', 
+                    'align-items': 'center'
+                }
+            ),
+            html.Div([
+                html.Div([
+                    generate_rate_component(), 
+                    generate_grade_limit_component()], 
+                    style={
+                        'display': 'flex', 
+                        'flex-direction': 'column', 
+                        'align-items': 'stretch', 
+                        'justify-content': 'space-around'
+                    }
+                ), 
+                html.Div([
+                    generate_max_depth_component(), 
+                    generate_num_paths_component()], 
+                    style={
+                        'display': 'flex', 
+                        'flex-direction': 'column', 
+                        'align-items': 'stretch', 
+                        'justify-content': 'space-around'
+                    }
+                )],
+                style={
+                    'display': 'flex', 
+                    'flex-direction': 'row', 
+                    'justify-content': 'space-around', 
+                    'align-items': 'center'
+                }
+            )],
+            style={
+                'display': 'flex', 
+                'flex-direction': 'column', 
+                'align-items': 'stretch'
+            }
+        ),
+        html.Button('Generate Terrain & Get Paths', id='btn', style={'height': '70px'}, n_clicks=0, disabled=True)],
+        style={
+            'display': 'flex', 
+            'flex-direction': 'row', 
+            'justify-content': 'space-around', 
+            'align-items': 'center'
+        }
+    ), 
+    html.Div(id='graph-container')],
+)
+
+
+# In[12]:
+
+
+# Define the callback function to handle dropdown selections and enable/disable the button
+@app.callback(
+    Output('btn', 'disabled'),
+    [
+        Input('gap-dropdown', 'value'), 
+        Input('amplify-slider', 'value'),
+        Input('prim-oct-slider', 'value'),
+        Input('sec-oct-slider', 'value'),
+        Input('tert-oct-slider', 'value'), 
+        Input('pav-slider', 'value'), 
+        Input('ewk-slider', 'value'),
+        Input('gradelim-slider', 'value'),
+        Input('maxdepth-slider', 'value'),
+        Input('numpaths-slider', 'value')
+    ]
+)
+def disable_button(*args):
+    if all(value is not None for value in args):
+        return False
+    else:
+        return True
+
+
 # In[13]:
 
 
-# the complete 3-d model is scaled down by a factor 'gap'
-start = (int(yP1/ gap), int(xP1/ gap), Z[int(yP1/ gap)][int(xP1/ gap)]/ gap)
-goal = (int(yP2/ gap), int(xP2/ gap), Z[int(yP2/ gap)][int(xP2/ gap)]/ gap)
+# Define the callback function
+@app.callback(
+    Output('graph-container', 'children'), 
+    [
+        Input('btn', 'n_clicks')
+    ], 
+    [
+        State('gap-dropdown',    'value'), 
+        State('amplify-slider', 'value'), 
+        State('prim-oct-slider', 'value'),
+        State('sec-oct-slider', 'value'),
+        State('tert-oct-slider', 'value'), 
+        State('pav-slider', 'value'), 
+        State('ewk-slider', 'value'),
+        State('gradelim-slider', 'value'),
+        State('maxdepth-slider', 'value'),
+        State('numpaths-slider', 'value')
+    ]
+)
+def update_graph(
+    n_clicks, gap, factor_z, 
+    num_prim_octaves, num_sec_octaves, num_tert_octaves, 
+    pc, ec, glim, maxd, npaths
+):
+    # INPUT VARIABLES
+    road_width = 7 # in metres
+    R = 3
+    if n_clicks > 0:
+        # Generate data based on selected options
+        # Update the figure with new data
+        fig1, pts_x, pts_y, pts_z, Z, nx, ny = generate_terrain(gap, factor_z, num_prim_octaves, num_sec_octaves, num_tert_octaves, road_width, pc, ec)
+        fig2, fig3, onterrain_direct_path_length = initial_profiles(pts_x, pts_y, pts_z)
+        
+        # the complete 3-d model is scaled down by a factor 'gap'
+        start = (int(pts_y[0]/ gap), int(pts_x[0]/ gap), Z[int(pts_y[0]/ gap)][int(pts_x[0]/ gap)]/ gap)
+        goal = (int(pts_y[-1]/ gap), int(pts_x[-1]/ gap), Z[int(pts_y[0]/ gap)][int(pts_x[-1]/ gap)]/ gap)
 
-# INPUT VARIABLES
-paving_cost = 1 # in monetary units/ metre^2
-earthwork_cost = 2 # in monetary units/ metre^3
-carriageway_width = 7 # in metres
-grade_lim = 0.05 # slope limit
-d_max = 7 # maximum depth of cut/ fill in metres
-R = 3
-number_of_paths = 1
-blocked_nodes = []
+        blocked_nodes = []
+        glim = glim * 0.01
+        for _ in range(npaths):
+            route, cost = optimal_path(start, goal, nx-1, ny-1, pc, ec, road_width/ gap, Z/ gap, glim, R, maxd/ gap, blocked_nodes) 
+            for i in range(1, len(route) - 1):
+                blocked_nodes.append(route[i][: 2])
 
-for k in range(number_of_paths):
-    route, cost = optimal_path(start, goal, nx - 1, ny - 1, paving_cost, earthwork_cost, carriageway_width/ gap, Z/ gap, grade_lim, R, d_max/ gap, blocked_nodes) 
-    print(cost)
-    for i in range(1, len(route) - 1):
-        blocked_nodes.append(route[i][: 2])
+            xvals = []
+            yvals = []
+            zvals = []
+            zvals_ground = []
+            for i in range(len(route)):
+                # points in route need to be rescaled
+                xvals.append(gap * route[i][1])
+                yvals.append(gap * route[i][0])
+                zvals.append(gap * route[i][2])
+                zvals_ground.append(Z[route[i][0]][route[i][1]])
 
-    xvals = []
-    yvals = []
-    zvals = []
-    zvals_ground = []
-    for i in range(len(route)):
-        # points in route need to be rescaled
-        xvals.append(gap * route[i][1])
-        yvals.append(gap * route[i][0])
-        zvals.append(gap * route[i][2])
-        zvals_ground.append(Z[route[i][0]][route[i][1]])
+            parameters_text = "pc:{}, ec:{}, cost:{}".format(pc, ec, round(cost, 6))
+            fig1.add_trace(
+                go.Scatter3d(
+                    x = xvals, 
+                    y = yvals, 
+                    z = zvals, 
+                    name = 'road: ' + parameters_text, 
+                    mode = 'lines', 
+                )
+            )
+        #     fig.add_trace(go.Scatter3d(x = xvals, y = yvals, z = zvals_ground, name = 'ground trace', mode = 'lines'))
+            long_length, max_grade, max_depth = get_profile_details(xvals, yvals, zvals, zvals_ground)
+            fig2.add_trace(go.Scatter(x = long_length, y = zvals))
+        #     profile.add_trace(go.Scatter(x = long_length, y = zvals_ground))
+            fig3.add_traces(go.Scatter(x = xvals, y = yvals))
+            
+        return [
+            dcc.Graph(figure=fig1), 
+            dcc.Graph(figure=fig2), 
+            dcc.Graph(figure=fig3)
+        ]
+    else:
+        # Return an empty figure if the button hasn't been clicked yet
+        return [
+            dcc.Graph(figure=go.Figure())
+        ]
 
-    parameters_text = 'pc=' + str(paving_cost) + ';ec=' + str(earthwork_cost) + ';grade_lim=' + str(grade_lim) + ';cost=' + str(round(cost, 3))
-    fig.add_trace(go.Scatter3d(x = xvals, y = yvals, z = zvals, name = 'road:' + parameters_text, mode = 'lines'))
-    fig.add_trace(go.Scatter3d(x = xvals, y = yvals, z = zvals_ground, name = 'ground trace', mode = 'lines'))
-    
-    long_length, max_grade, max_depth = get_profile_details(xvals, yvals, zvals, zvals_ground)
-    profile.add_trace(go.Scatter(x = long_length, y = zvals))
-    profile.add_trace(go.Scatter(x = long_length, y = zvals_ground))
-   
-    v_proj.add_traces(go.Scatter(x = xvals, y = yvals))
-    
-fig.show()
-profile.show()
-v_proj.show()
+# Run the app
+if __name__ == '__main__':
+    app.run_server(mode='inline')
+
+
+# In[15]:
+
+
+# for the scaled-down model:
+
+# direct (i.e. through terrain)path
+# print(direct_earthwork_volume/ (gap**3) * ec + segment_length(start, goal) * pc)
+# on-terrain path
+# print(onterrain_direct_path_length/ gap * pc)
+
+
+# In[ ]:
+
+
+
 
